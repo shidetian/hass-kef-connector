@@ -5,6 +5,7 @@ from datetime import timedelta
 import functools
 import logging
 
+import aiohttp
 from pykefcontrol.kef_connector import KefAsyncConnector
 import voluptuous as vol
 
@@ -48,6 +49,14 @@ SCAN_INTERVAL = timedelta(seconds=10)
 
 
 DOMAIN = "kef_connector"
+
+# Errors raised by aiohttp/pykefcontrol when the speaker can't be reached
+# (host offline, powered down, network unreachable, timeouts, etc).
+# These are expected and frequent for a device that can be physically
+# switched off, so they are handled explicitly in async_update instead of
+# being allowed to bubble up and have Home Assistant log a full traceback
+# on every poll (see async_update below).
+CONNECTION_ERRORS = (aiohttp.ClientError, OSError, asyncio.TimeoutError)
 
 SOURCES = {
     "LSX2": ["wifi", "bluetooth", "tv", "optical", "analog", "usb"],
@@ -234,6 +243,11 @@ class KefSpeaker(MediaPlayerEntity):
         self._attr_media_image_url = None
         self._attr_media_image_remotely_accessible = False
 
+        # Tracks reachability so connection-error logging only happens on
+        # state transitions (online -> offline -> online) instead of on
+        # every poll. Starts True so the first failure is always logged.
+        self._attr_available = True
+
     @property
     def should_poll(self):
         """Push an update after each command."""
@@ -332,7 +346,45 @@ class KefSpeaker(MediaPlayerEntity):
         return support_kef
 
     async def async_update(self):
-        """Update latest state."""
+        """Update latest state.
+
+        Wraps the actual update in error handling so that connection
+        errors (speaker offline/unreachable) don't get logged with a full
+        stack trace on every single poll. Instead, we log once when the
+        speaker goes offline and once when it comes back online, and mark
+        the entity unavailable in between.
+        """
+        try:
+            await self._async_update_state()
+        except CONNECTION_ERRORS as err:
+            if self._attr_available:
+                _LOGGER.warning(
+                    "Kef Connector: %s (%s) is unreachable, marking unavailable: %s. "
+                    "Further connection errors will be suppressed until it comes back online",
+                    self.name or "speaker",
+                    self._speaker.host,
+                    err,
+                )
+            else:
+                _LOGGER.debug(
+                    "Kef Connector: %s (%s) is still unreachable: %s",
+                    self.name or "speaker",
+                    self._speaker.host,
+                    err,
+                )
+            self._attr_available = False
+            return
+
+        if not self._attr_available:
+            _LOGGER.warning(
+                "Kef Connector: %s (%s) is back online",
+                self.name or "speaker",
+                self._speaker.host,
+            )
+        self._attr_available = True
+
+    async def _async_update_state(self):
+        """Fetch the latest state from the speaker."""
 
         # Update name and unique_id if needed (the first time)
         if self.name is None:
