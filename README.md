@@ -7,8 +7,8 @@ Kef Connector is compatible with LSX2LT, LSX2, LS50W2, LS60 and XIO Soundbar.
   - [Installation and configuration](#installation-and-configuration)
     - [⬇️ Installation](#️-installation)
     - [🔧 Configuration](#-configuration)
-      - [📜 Platform configuration options](#-platform-configuration-options)
-      - [🧑‍🔬 Full configuration example](#-full-configuration-example)
+      - [📜 Options](#-options)
+      - [🔁 Migrating from `configuration.yaml`](#-migrating-from-configurationyaml)
 
 
 ## Installation and configuration
@@ -23,36 +23,27 @@ Copy the [kef_connector](custom_components/kef_connector) folder in your home as
 
 ### 🔧 Configuration
 
-In your `configuration.yaml` file, add the following :
+Kef Connector is configured from the Home Assistant UI:
 
-```yaml
-media_player:
-  - platform: kef_connector
-    host: <IP-of-your-speakers>
-```
-⚠️ _Replace_ `<IP-of-your-speakers>` _with the correct IP._ 
+1. Go to **Settings → Devices & services** and click **Add integration**.
+2. Search for **Kef Connector**.
+3. Enter the IP address of your speakers. More information on how to find it [here](https://github.com/N0ciple/pykefcontrol#-get-the-ip-address).
+4. Kef Connector connects to the speakers, detects their name and model, and lets you confirm the model and volume settings.
 
-More information on how to find the IP of your Kef speakers [here](https://github.com/N0ciple/pykefcontrol#-get-the-ip-address).
+Repeat for each pair of speakers. If the IP address of your speakers changes, use **Reconfigure** on the integration entry.
 
-#### 📜 Platform configuration options
+#### 📜 Options
 
-Here is the list of the variables you can set if your `configuration.yaml` file.
+These can be changed at any time with **Configure** on the integration entry.
 
-| option           | required     | default value | comment|
-| ---------------- | ------------ | -------------|-------------------- |
-| `host`           | **Required** | `None`        | This should be a string in the form `www.xxx.yyy.zzz`, being the IP address of your speakers.|
-| `name`           | _Optional_   | _see comment_ | If you do not specify a `name`, the integration will fetch the name you set up on the KefConnect app for your speakers, if any. If you specify a `name` property, this name will be used instead.|
-| `maximum_volume` | _Optional_   | `1.0`         | This should be a float between 0 and 1. 0 is muted and 1 is maximum volume. Bear in mind that this option **does not** override the maximum volume set in the KefConnect app. It will prevent hass from setting a volume higher than `maximum_volume`|
-| `volume_step`    | _Optional_   | `0.03`        | This should be float bewteen 0 and 1 (however it is **not recommended** to set it higher than 0.1). This value is by how much volume will be changed when calling   `media_player.volume_up` or `media_player.volume_down` services, by clicking on ![volume_down_up](assets/images/volume_down_up.png) for example. |
-| `speaker_model`  | _Optional_   | _see comment_ | Write the model of your KEF speakers (either `LSX2`, `LSX2LT`, `LS50W2`, `LS60` or `XIO`). This allows Kef Connector to know which sources are available on your speakers. If you do not put `speaker_model` in your `configuration.yaml`, by default, all sources will be available on the entity, even though they are not physically present on your speakers (for example, there is no analog input on the LSX2LT). |
-#### 🧑‍🔬 Full configuration example
-This is just and example ! You can copy it but **at least** change the `host` value to the IP address of you speakers. More info on how to find the IP address [here](https://github.com/N0ciple/pykefcontrol#-get-the-ip-address).
-```yaml
-media_player:
-  - platform: kef_connector
-    host: 192.168.1.42
-    name: "My Kef Speakers"
-    maximum_volume: 0.7
-    volume_step: 0.02
-    speaker_model: LS50W2
-```
+| option           | default value | comment|
+| ---------------- | ------------- | -------------------- |
+| Speaker model    | _auto-detected_ | Model of your KEF speakers (`LSX II`, `LSX II LT`, `LS50 Wireless II`, `LS60` or `XIO`). This lets Kef Connector know which sources are available on your speakers. If set to "Other / unknown", all sources will be available on the entity, even though they are not physically present on your speakers (for example, there is no analog input on the LSX2LT). |
+| Maximum volume   | `1.0`         | A number between 0 and 1. 0 is muted and 1 is maximum volume. Bear in mind that this option **does not** override the maximum volume set in the KefConnect app. It will prevent hass from setting a volume higher than the maximum volume. |
+| Volume step      | `0.03`        | A number between 0 and 1 (however it is **not recommended** to set it higher than 0.1). This value is by how much volume will be changed when calling `media_player.volume_up` or `media_player.volume_down` services, by clicking on ![volume_down_up](assets/images/volume_down_up.png) for example. |
+
+The name of the speakers is taken from the KefConnect app. You can rename the entity or the integration entry from the UI.
+
+#### 🔁 Migrating from `configuration.yaml`
+
+Older versions of Kef Connector were configured in `configuration.yaml`. Existing `kef_connector` entries are automatically imported into the UI on startup (the speakers must be reachable), keeping your entity IDs and settings. Once imported, a repair notice will ask you to remove the `kef_connector` entries from `configuration.yaml` and restart Home Assistant.

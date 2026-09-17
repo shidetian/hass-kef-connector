@@ -4,7 +4,7 @@
   "codeowners": [
     "@n0ciple"
   ],
-  "config_flow": false,
+  "config_flow": true,
   "documentation": "https://github.com/N0ciple/hass-kef-connector",
   "integration_type": "device",
   "iot_class": "local_polling",

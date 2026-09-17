@@ -1,0 +1,72 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to your KEF speakers",
+        "description": "Enter the IP address of your KEF speakers. You can find it in the KEF Connect app or in your router.",
+        "data": {
+          "host": "IP address"
+        }
+      },
+      "settings": {
+        "title": "Configure {name}",
+        "description": "Found **{name}** at `{host}`. Confirm the speaker model and volume settings.",
+        "data": {
+          "speaker_model": "Speaker model",
+          "maximum_volume": "Maximum volume",
+          "volume_step": "Volume step"
+        },
+        "data_description": {
+          "speaker_model": "Determines which input sources are available.",
+          "maximum_volume": "Home Assistant will never set the volume higher than this (0 to 1). This does not override the limit set in the KEF Connect app.",
+          "volume_step": "How much the volume changes on volume up/down (0 to 1). Values above 0.1 are not recommended."
+        }
+      },
+      "reconfigure": {
+        "title": "Change IP address",
+        "description": "Enter the new IP address of your KEF speakers.",
+        "data": {
+          "host": "IP address"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not connect to the speakers. Check the IP address and make sure they are on the same network.",
+      "unknown": "Unexpected error, check the logs for details."
+    },
+    "abort": {
+      "already_configured": "These speakers are already configured.",
+      "reconfigure_successful": "The IP address was updated.",
+      "wrong_speaker": "A different speaker was found at this IP address.",
+      "cannot_connect": "Could not connect to the speakers.",
+      "unknown": "Unexpected error, check the logs for details."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Kef Connector options",
+        "data": {
+          "speaker_model": "Speaker model",
+          "maximum_volume": "Maximum volume",
+          "volume_step": "Volume step"
+        },
+        "data_description": {
+          "speaker_model": "Determines which input sources are available.",
+          "maximum_volume": "Home Assistant will never set the volume higher than this (0 to 1). This does not override the limit set in the KEF Connect app.",
+          "volume_step": "How much the volume changes on volume up/down (0 to 1). Values above 0.1 are not recommended."
+        }
+      }
+    }
+  },
+  "issues": {
+    "deprecated_yaml": {
+      "title": "Kef Connector YAML configuration is deprecated",
+      "description": "Your Kef Connector speakers configured in `configuration.yaml` have been imported into the UI. Remove the `kef_connector` entries under `media_player:` from `configuration.yaml` and restart Home Assistant to fix this issue."
+    },
+    "yaml_import_failed": {
+      "title": "Kef Connector could not import speakers at {host}",
+      "description": "The speakers at `{host}` configured in `configuration.yaml` could not be reached, so they were not imported into the UI. Make sure they are powered on and restart Home Assistant, or remove the YAML entry and add them from **Settings > Devices & services**."
+    }
+  }
+}

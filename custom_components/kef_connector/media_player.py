@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import timedelta
 import functools
 import logging
 
@@ -14,6 +13,7 @@ from homeassistant.components.media_player import (
     MediaPlayerEntity,
     MediaPlayerEntityFeature,
 )
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import (
     CONF_HOST,
     CONF_NAME,
@@ -24,31 +24,30 @@ from homeassistant.const import (
     STATE_PLAYING,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import entity_registry as er
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 import homeassistant.helpers.aiohttp_client as hass_aiohttp
 import homeassistant.helpers.config_validation as cv
-from homeassistant.helpers.device_registry import format_mac
-
-# from homeassistant.helpers.entity_component import EntityComponent
-# from homeassistant.helpers.entity_platform import AddEntitiesCallback
-# from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.device_registry import DeviceInfo, format_mac
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 import homeassistant.util.dt as dt_util
 
+from .const import (
+    CONF_MAX_VOLUME,
+    CONF_SPEAKER_MODEL,
+    CONF_VOLUME_STEP,
+    DEFAULT_MAX_VOLUME,
+    DEFAULT_NAME,
+    DEFAULT_SPEAKER_MODEL,
+    DEFAULT_VOLUME_STEP,
+    DOMAIN,
+    MODEL_LABELS,
+    SCAN_INTERVAL,  # noqa: F401  (read by Home Assistant from this module)
+    SOURCES,
+    UNIQUE_ID_PREFIX,
+)
+
 _LOGGER = logging.getLogger(__name__)
-
-CONF_MAX_VOLUME = "maximum_volume"
-CONF_VOLUME_STEP = "volume_step"
-CONF_SPEAKER_MODEL = "speaker_model"
-
-DEFAULT_NAME = "DEFAULT_KEFSPEAKER"
-DEFAULT_MAX_VOLUME = 1
-DEFAULT_VOLUME_STEP = 0.03
-DEFAULT_SPEAKER_MODEL = "default"
-
-SCAN_INTERVAL = timedelta(seconds=10)
-
-
-DOMAIN = "kef_connector"
 
 # Errors raised by aiohttp/pykefcontrol when the speaker can't be reached
 # (host offline, powered down, network unreachable, timeouts, etc).
@@ -58,17 +57,8 @@ DOMAIN = "kef_connector"
 # on every poll (see async_update below).
 CONNECTION_ERRORS = (aiohttp.ClientError, OSError, asyncio.TimeoutError)
 
-SOURCES = {
-    "LSX2": ["wifi", "bluetooth", "tv", "optical", "analog", "usb"],
-    "LSX2LT": ["wifi", "bluetooth", "tv", "optical", "usb"],
-    "LS50W2": ["wifi", "bluetooth", "tv", "optical", "coaxial", "analog"],
-    "LS60": ["wifi", "bluetooth", "tv", "optical", "coaxial", "analog"],
-    "XIO": ["wifi", "bluetooth", "tv", "optical"],
-    "default": ["wifi", "bluetooth", "tv", "optical", "coaxial", "analog", "usb"],
-}
-
-UNIQUE_ID_PREFIX = "KEF_SPEAKER"
-
+# Kept so existing configuration.yaml entries still validate and can be
+# imported into a config entry.
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
@@ -83,7 +73,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 def migrate_old_unique_ids(hass: HomeAssistant):
     """Migrate old unique ids to new format."""
     registry = er.async_get(hass)
-    for entity in registry.entities.values():
+    for entity in list(registry.entities.values()):
         if entity.platform == DOMAIN:
             entity_mac_address = entity.unique_id.split("_")[-1]
             if entity.unique_id == "KEFLS50W2_" + entity_mac_address:
@@ -144,61 +134,89 @@ def delay_update(delay):
 
 
 async def async_setup_platform(
-    hass: HomeAssistant | None,
+    hass: HomeAssistant,
     config,
     async_add_entities,
     discovery_info=None,
 ):
-    """Set up platform kef_connector."""
+    """Import a speaker from configuration.yaml into a config entry."""
 
-    # Get variables from configuration
+    # Migrate old unique ids starting with "KEFLS50W2_" to the new format
+    # "KEF_SPEAKER_" + mac_address before the entity is attached to an entry
+    migrate_old_unique_ids(hass)
+
     host = config[CONF_HOST]
-    name = config[CONF_NAME]
-    max_volume = config[CONF_MAX_VOLUME]
-    volume_step = config[CONF_VOLUME_STEP]
-    speaker_model = config[CONF_SPEAKER_MODEL]
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": SOURCE_IMPORT}, data=dict(config)
+    )
 
-    # make sure the speaker model is in uppercase
-    speaker_model = speaker_model.upper()
-
-    # get session
-    session = hass_aiohttp.async_create_clientsession(hass)
-
-    if speaker_model not in SOURCES:
-        sources = SOURCES["default"]
-        _LOGGER.warning(
-            "Kef Speaker model %s is unknown. Using default sources. Please make sure the model is either LSX2, LSX2LT, LS50W2 or LS60",
-            speaker_model,
+    if (
+        result["type"] == FlowResultType.CREATE_ENTRY
+        or result.get("reason") == "already_configured"
+    ):
+        ir.async_delete_issue(hass, DOMAIN, f"yaml_import_failed_{host}")
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            "deprecated_yaml",
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="deprecated_yaml",
         )
-    else:
-        sources = SOURCES[speaker_model]
+        return
 
-    # Pass model to the connector if explicitly configured
-    if speaker_model == "default":
-        speaker_model = None
-        _LOGGER.warning(
-            "No speaker_model configured. The model will be auto-detected via an API call. "
-            "Please set speaker_model in your configuration as this will become mandatory in a future version."
-        )
+    _LOGGER.warning(
+        "Kef Connector could not import speaker %s from configuration.yaml (%s). "
+        "Make sure it is reachable and restart Home Assistant, or add it from "
+        "Settings > Devices & services",
+        host,
+        result.get("reason"),
+    )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        f"yaml_import_failed_{host}",
+        is_fixable=False,
+        severity=ir.IssueSeverity.ERROR,
+        translation_key="yaml_import_failed",
+        translation_placeholders={"host": host},
+    )
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up a Kef speaker from a config entry."""
+    migrate_old_unique_ids(hass)
+
+    host = entry.data[CONF_HOST]
+    speaker_model = entry.options.get(CONF_SPEAKER_MODEL, DEFAULT_SPEAKER_MODEL)
+    sources = SOURCES.get(speaker_model, SOURCES[DEFAULT_SPEAKER_MODEL])
 
     _LOGGER.debug(
         "Setting up %s with host: %s, name: %s, sources: %s",
         DOMAIN,
         host,
-        name,
+        entry.title,
         sources,
     )
 
-    # Migrate old unique ids starting with "KEFLS50W2_" to the new format "KEF_SPEAKER_" + mac_address
-    migrate_old_unique_ids(hass)
-
     media_player = KefSpeaker(
-        host, name, max_volume, volume_step, sources, session, hass, speaker_model
+        host=host,
+        name=entry.title,
+        max_volume=entry.options.get(CONF_MAX_VOLUME, DEFAULT_MAX_VOLUME),
+        volume_step=entry.options.get(CONF_VOLUME_STEP, DEFAULT_VOLUME_STEP),
+        sources=sources,
+        session=hass_aiohttp.async_create_clientsession(hass),
+        hass=hass,
+        # Unknown model: let pykefcontrol auto-detect it via an API call
+        model=None if speaker_model == DEFAULT_SPEAKER_MODEL else speaker_model,
+        mac_address=entry.unique_id,
     )
 
     async_add_entities([media_player], update_before_add=True)
-
-    return True
 
 
 class KefSpeaker(MediaPlayerEntity):
@@ -214,14 +232,12 @@ class KefSpeaker(MediaPlayerEntity):
         session,
         hass: HomeAssistant | None,
         model=None,
+        mac_address=None,
     ) -> None:
         """Initialize the media player."""
         super().__init__()
         self._speaker = KefHassAsyncConnector(host, session=session, hass=hass, model=model)
-        if name != DEFAULT_NAME:
-            self._name = name
-        else:
-            self._name = None
+        self._name = name
         self._max_volume = max_volume
         self._volume_step = volume_step * 100
         self._sources = sources
@@ -239,7 +255,14 @@ class KefSpeaker(MediaPlayerEntity):
         self._attr_media_position = None
         self._attr_media_duration = None
         self._attr_media_position_updated_at = None
-        self._attr_unique_id = None
+        self._attr_unique_id = f"{UNIQUE_ID_PREFIX}_{mac_address}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, mac_address)},
+            connections={("mac", mac_address)},
+            manufacturer="KEF",
+            model=MODEL_LABELS.get(model) if model else None,
+            name=name,
+        )
         self._attr_media_image_url = None
         self._attr_media_image_remotely_accessible = False
 
@@ -385,14 +408,6 @@ class KefSpeaker(MediaPlayerEntity):
 
     async def _async_update_state(self):
         """Fetch the latest state from the speaker."""
-
-        # Update name and unique_id if needed (the first time)
-        if self.name is None:
-            self._name = await self._speaker.speaker_name
-        if self.unique_id is None:
-            self._attr_unique_id = (
-                f"{UNIQUE_ID_PREFIX}_{format_mac(await self._speaker.mac_address)}"
-            )
 
         # Get speaker volume (from [0,100] to [0,1])
         self._volume = await self._speaker.volume / 100
